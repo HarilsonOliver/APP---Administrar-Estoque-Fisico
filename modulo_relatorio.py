@@ -121,8 +121,8 @@ class RelatoriosEstoque(tk.Frame):
 
         # Coluna 6 e 7: Emitente
         tk.Label(frame_filtros, text="Emitente:").grid(row=0, column=6)
-        self.combo_emitente = ttk.Combobox(frame_filtros, values=["TODOS", "156", "175", "128", "126", "127", "129"], width=8)
-        self.combo_emitente.set("TODOS")
+        self.combo_emitente = ttk.Combobox(frame_filtros, values=["156", "175", "128", "126", "127", "129"], width=8)
+        self.combo_emitente.set("156")
         self.combo_emitente.grid(row=0, column=7, padx=5)
 
         # Botões nas colunas seguintes
@@ -177,7 +177,7 @@ class RelatoriosEstoque(tk.Frame):
         # Inverte o comando para o próximo clique
         tree.heading(col, command=lambda _col=col: self.ordenar_coluna(tree, _col, not reverse))
         
-    def gerar_pdf_termico_vendas(self, titulo, dados, periodo, total_geral, resumo_cob):
+    def gerar_pdf_termico_vendas(self, titulo, dados, periodo, total_geral, resumo_cob, operador=""):
         largura_fita = 80 * mm
         altura_estimada = (len(dados) * 5 * mm) + (len(resumo_cob) * 5 * mm) + 120 * mm
         nome_arquivo = "relatorio_vendas_fita.pdf"
@@ -189,6 +189,8 @@ class RelatoriosEstoque(tk.Frame):
         c.setFont("Helvetica-Bold", 12)
         c.drawCentredString(largura_fita/2, y, "FRIJEL - 24HRS")
         y -= 5 * mm
+        
+        
         c.setFont("Helvetica", 9)
         c.drawCentredString(largura_fita/2, y, titulo)
         y -= 5 * mm
@@ -196,9 +198,15 @@ class RelatoriosEstoque(tk.Frame):
             c.setFont("Helvetica-Bold", 8)
             c.drawCentredString(largura_fita/2, y, f"PERÍODO: {periodo}")
             y -= 7 * mm
+    
+        c.setFont("Helvetica", 6)
+        c.drawCentredString(largura_fita/2, y, f"OPERADOR: {operador}")
+        y -= 5 * mm
         
         c.line(5*mm, y, 75*mm, y)
         y -= 5 * mm
+        
+        
 
         # Cabeçalho da Tabela de Itens (Fonte 5 para o cabeçalho)
         c.setFont("Helvetica-Bold", 5)
@@ -265,6 +273,7 @@ class RelatoriosEstoque(tk.Frame):
         totais_por_cobradora = {}
         valor_total_geral = 0.0
         datas_horas = []
+        nome_operador = "" # Variável para armazenar o nome
 
         filhos = self.tree_vendas.get_children()
         if not filhos:
@@ -273,6 +282,9 @@ class RelatoriosEstoque(tk.Frame):
 
         for child in filhos:
             v = self.tree_vendas.item(child)["values"]
+            
+            if not nome_operador:
+                nome_operador = v[9]
             
             cod_cob = str(v[2])
             valor_nf = float(v[3])
@@ -297,7 +309,8 @@ class RelatoriosEstoque(tk.Frame):
             dados=itens,
             periodo=periodo,
             total_geral=valor_total_geral,
-            resumo_cob=totais_por_cobradora
+            resumo_cob=totais_por_cobradora,
+            operador=nome_operador
         )
     # --- LÓGICA DE DADOS ---
 
