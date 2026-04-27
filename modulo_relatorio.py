@@ -145,7 +145,6 @@ class RelatoriosEstoque(tk.Frame):
         
     def gerar_pdf_termico_vendas(self, titulo, dados, periodo, total_geral, resumo_cob):
         largura_fita = 80 * mm
-        # Altura dinâmica baseada na quantidade de itens e resumos
         altura_estimada = (len(dados) * 5 * mm) + (len(resumo_cob) * 5 * mm) + 120 * mm
         nome_arquivo = "relatorio_vendas_fita.pdf"
 
@@ -154,7 +153,7 @@ class RelatoriosEstoque(tk.Frame):
 
         # Cabeçalho
         c.setFont("Helvetica-Bold", 12)
-        c.drawCentredString(largura_fita/2, y, "FRIJEL - GESTÃO")
+        c.drawCentredString(largura_fita/2, y, "FRIJEL - 24HRS")
         y -= 5 * mm
         c.setFont("Helvetica", 9)
         c.drawCentredString(largura_fita/2, y, titulo)
@@ -167,20 +166,29 @@ class RelatoriosEstoque(tk.Frame):
         c.line(5*mm, y, 75*mm, y)
         y -= 5 * mm
 
-        # Cabeçalho da Tabela de Itens
-        c.setFont("Helvetica-Bold", 8)
+        # Cabeçalho da Tabela de Itens (Fonte 5 para o cabeçalho)
+        c.setFont("Helvetica-Bold", 5)
         c.drawString(5*mm, y, "COD")
-        c.drawString(18*mm, y, "PRODUTO")
-        c.drawRightString(75*mm, y, "QTD.")
+        c.drawString(15*mm, y, "PRODUTO")
+        c.drawRightString(48*mm, y, "VENDAS")
+        c.drawRightString(62*mm, y, "ESTOQ.")
+        c.drawRightString(75*mm, y, "SALDO")
         y -= 4 * mm
 
-        # Listagem de Itens
-        c.setFont("Helvetica", 7)
+        # Listagem de Itens (Fonte 4 conforme solicitado)
+        c.setFont("Helvetica", 4)
         for item in dados:
-            c.drawString(5*mm, y, str(item[0]))
-            c.drawString(18*mm, y, str(item[1])[:25])
-            c.drawRightString(75*mm, y, str(item[2]))
-            y -= 4 * mm
+            c.drawString(5*mm, y, str(item[0]))      # CODPROD
+            c.drawString(15*mm, y, str(item[1])[:25]) # DESCRIÇÃO
+            
+            qtd_vendida = f"{float(item[2]):.2f}"
+            est_gerencial = f"{float(item[3]):.2f}"
+            saldo = f"{float(item[4]):.2f}"
+            
+            c.drawRightString(48*mm, y, qtd_vendida) # QTD VENDIDA
+            c.drawRightString(62*mm, y, est_gerencial) # ESTOQUE GERENCIAL
+            c.drawRightString(75*mm, y, saldo) # SALDO (EST - VEND)
+            y -= 3 * mm # Espaçamento menor para fonte pequena
 
         y -= 5 * mm
         c.line(15*mm, y, 65*mm, y)
@@ -228,7 +236,7 @@ class RelatoriosEstoque(tk.Frame):
                 if not dados:
                     messagebox.showwarning("Aviso", "Não há dados para imprimir.")
                     return
-                self.gerar_pdf_termico("ALTERAÇÕES ESTOQUE", ["COD", "DESC", "QTD"], dados)
+                self.gerar_pdf_termico_vendas("ALTERAÇÕES ESTOQUE", ["COD", "DESC", "QTD"], dados)
         except Exception as e:
             messagebox.showerror("Erro", str(e))
 
@@ -246,24 +254,21 @@ class RelatoriosEstoque(tk.Frame):
 
         for child in filhos:
             v = self.tree_vendas.item(child)["values"]
-            # v[0]=nota, v[1]=data, v[2]=codcob, v[3]=vltotal, v[4]=sefaz, v[5]=codprod...
             
             cod_cob = str(v[2])
             valor_nf = float(v[3])
             data_sefaz = str(v[4])
             
-            # Coleta datas para o período
             if data_sefaz:
                 datas_horas.append(data_sefaz)
                 
-            # Acumula totais
             valor_total_geral += valor_nf
             totais_por_cobradora[cod_cob] = totais_por_cobradora.get(cod_cob, 0) + valor_nf
             
-            # Itens para o corpo (Cod, Desc, VlTotal da Nota)
-            itens.append((v[5], v[6], v[7]))
+            # Captura: CodProd(5), Desc(6), QtdVend(7), EstGerencial(10), Saldo(11)
+            itens.append((v[5], v[6], v[7], v[10], v[11]))
 
-        # Determina o período (primeira e última autorização exibida)
+        # Determina o período
         periodo = ""
         if datas_horas:
             periodo = f"{datas_horas[0]} até {datas_horas[-1]}"
@@ -274,7 +279,7 @@ class RelatoriosEstoque(tk.Frame):
             periodo=periodo,
             total_geral=valor_total_geral,
             resumo_cob=totais_por_cobradora
-    )
+        )
     # --- LÓGICA DE DADOS ---
 
     def carregar_historico_local(self):
