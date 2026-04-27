@@ -14,6 +14,22 @@ class RelatoriosEstoque(tk.Frame):
         self.controller = controller
         
         self.setup_ui()
+        
+    def formatar_data_input(self, event):
+        """Formata a data automaticamente conforme o usuário digita (DD-MM-AAAA)"""
+        entry = event.widget
+        texto = entry.get().replace("-", "")[:8]
+        novo_texto = ""
+        
+        if event.keysym == "BackSpace": return
+
+        for i, char in enumerate(texto):
+            if i == 2 or i == 4:
+                novo_texto += "-"
+            novo_texto += char
+        
+        entry.delete(0, tk.END)
+        entry.insert(0, novo_texto)
 
     def setup_ui(self):
         # Botão Voltar
@@ -37,14 +53,26 @@ class RelatoriosEstoque(tk.Frame):
         self.setup_aba_vendas()
 
     def setup_aba_historico(self):
-        frame_controles = tk.Frame(self.tab_historico)
-        frame_controles.pack(fill=tk.X, pady=5)
+        frame_filtros_hist = tk.LabelFrame(self.tab_historico, text=" Filtros de Histórico ", padx=10, pady=10)
+        frame_filtros_hist.pack(fill=tk.X, padx=10, pady=5)
 
-        tk.Button(frame_controles, text="🔄 Atualizar Histórico", 
-                command=self.carregar_historico_local).pack(side=tk.LEFT, padx=10)
-        tk.Button(frame_controles, text="🖨 Imprimir Fita", 
-                command=self.imprimir_estoque_gerencial, bg="#495057", fg="white").pack(side=tk.LEFT, padx=10)
+        # Data Início
+        tk.Label(frame_filtros_hist, text="Data Início (DD-MM-AAAA):").grid(row=0, column=0)
+        self.ent_hist_ini = tk.Entry(frame_filtros_hist, width=12)
+        self.ent_hist_ini.insert(0, datetime.now().strftime("%d-%m-%Y"))
+        self.ent_hist_ini.grid(row=0, column=1, padx=5)
+        self.ent_hist_ini.bind("<KeyRelease>", self.formatar_data_input)
 
+        # Data Fim
+        tk.Label(frame_filtros_hist, text="Data Fim (DD-MM-AAAA):").grid(row=0, column=2)
+        self.ent_hist_fim = tk.Entry(frame_filtros_hist, width=12)
+        self.ent_hist_fim.insert(0, datetime.now().strftime("%d-%m-%Y"))
+        self.ent_hist_fim.grid(row=0, column=3, padx=5)
+        self.ent_hist_fim.bind("<KeyRelease>", self.formatar_data_input)
+
+        tk.Button(frame_filtros_hist, text="🔍 Filtrar Histórico", bg="#007bff", fg="white",
+                command=self.carregar_historico_local).grid(row=0, column=4, padx=10)
+        
         # Tabela de Histórico
         self.tree_hist = ttk.Treeview(self.tab_historico, 
                                     columns=("id", "cod", "desc", "qtd", "data"), 
@@ -62,7 +90,7 @@ class RelatoriosEstoque(tk.Frame):
         self.tree_hist.column("qtd", width=100)
         self.tree_hist.column("data", width=150)
         
-        self.tree_hist.pack(fill=tk.BOTH, expand=True)
+        self.tree_hist.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         self.carregar_historico_local()
 
     def setup_aba_vendas(self):
@@ -72,7 +100,10 @@ class RelatoriosEstoque(tk.Frame):
         # Coluna 0 e 1: Data Início
         tk.Label(frame_filtros, text="Data Início:").grid(row=0, column=0)
         self.ent_data_ini = tk.Entry(frame_filtros, width=11)
+        self.ent_data_ini.insert(0, datetime.now().strftime("%d-%m-%Y")) # Já inicia com data atual
         self.ent_data_ini.grid(row=0, column=1, padx=2)
+        # Vincula a máscara automática
+        self.ent_data_ini.bind("<KeyRelease>", self.formatar_data_input)
         
         # Coluna 2 e 3: Hora Início
         tk.Label(frame_filtros, text="Hora (HH:MM):").grid(row=0, column=2)
@@ -80,10 +111,13 @@ class RelatoriosEstoque(tk.Frame):
         self.ent_hora_ini.insert(0, "00:00")
         self.ent_hora_ini.grid(row=0, column=3, padx=2)
 
-        # Coluna 4 e 5: Data Fim (Estava repetindo column 2 e 3)
+        # Coluna 4 e 5: Data Fim
         tk.Label(frame_filtros, text="Data Fim:").grid(row=0, column=4)
         self.ent_data_fim = tk.Entry(frame_filtros, width=11)
+        self.ent_data_fim.insert(0, datetime.now().strftime("%d-%m-%Y")) # Já inicia com data atual
         self.ent_data_fim.grid(row=0, column=5, padx=2)
+        # Vincula a máscara automática
+        self.ent_data_fim.bind("<KeyRelease>", self.formatar_data_input)
 
         # Coluna 6 e 7: Emitente
         tk.Label(frame_filtros, text="Emitente:").grid(row=0, column=6)
@@ -224,21 +258,6 @@ class RelatoriosEstoque(tk.Frame):
         c.save()
         os.startfile(nome_arquivo)
 
-    # --- Métodos para acionar a impressão nas abas ---
-
-    def imprimir_estoque_gerencial(self):
-        """Extrai dados do histórico local para o PDF"""
-        try:
-            with sqlite3.connect('estoque_gerencial.db') as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT codprod, descricao, quantidade FROM historico_alteracoes ORDER BY id DESC LIMIT 50")
-                dados = cursor.fetchall()
-                if not dados:
-                    messagebox.showwarning("Aviso", "Não há dados para imprimir.")
-                    return
-                self.gerar_pdf_termico_vendas("ALTERAÇÕES ESTOQUE", ["COD", "DESC", "QTD"], dados)
-        except Exception as e:
-            messagebox.showerror("Erro", str(e))
 
     def imprimir_vendas_oracle(self):
         """Extrai dados da tabela para o PDF térmico com totais e resumo"""
@@ -283,18 +302,33 @@ class RelatoriosEstoque(tk.Frame):
     # --- LÓGICA DE DADOS ---
 
     def carregar_historico_local(self):
-        """Busca dados da tabela historico_alteracoes do SQLite"""
-        for item in self.tree_hist.get_children():
-            self.tree_hist.delete(item)
-            
+        """Busca dados convertendo o input brasileiro para o padrão SQLite"""
+        dt_ini_raw = self.ent_hist_ini.get().strip()
+        dt_fim_raw = self.ent_hist_fim.get().strip()
+
         try:
+            # Converte DD-MM-AAAA para AAAA-MM-DD para o SQLite entender
+            dt_ini = datetime.strptime(dt_ini_raw, "%d-%m-%Y").strftime("%Y-%m-%d")
+            dt_fim = datetime.strptime(dt_fim_raw, "%d-%m-%Y").strftime("%Y-%m-%d")
+
+            for item in self.tree_hist.get_children():
+                self.tree_hist.delete(item)
+            
             with sqlite3.connect('estoque_gerencial.db') as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT id, codprod, descricao, quantidade, data_hora FROM historico_alteracoes ORDER BY id DESC")
+                query = """
+                    SELECT id, codprod, descricao, quantidade, data_hora 
+                    FROM historico_alteracoes 
+                    WHERE date(data_hora) BETWEEN ? AND ?
+                    ORDER BY id DESC
+                """
+                cursor.execute(query, (dt_ini, dt_fim))
                 for row in cursor.fetchall():
                     self.tree_hist.insert("", tk.END, values=row)
+        except ValueError:
+            messagebox.showerror("Erro", "Formato de data inválido. Use DD-MM-AAAA")
         except Exception as e:
-            messagebox.showerror("Erro SQLite", str(e))
+            messagebox.showerror("Erro SQLite", f"Erro: {e}")
 
     def carregar_vendas_oracle(self):
         dt_ini = self.ent_data_ini.get()
