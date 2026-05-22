@@ -7,7 +7,7 @@ from modulo_relatorio import RelatoriosEstoque
 class JanelaPrincipal(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Sistema Estoque")
+        self.title("Controle de Estoque 24HRS")
         self.geometry("400x300")
         init_oracle()
         self.show_menu()
@@ -19,13 +19,13 @@ class JanelaPrincipal(tk.Tk):
     def show_menu(self):
         self.limpar_tela()
         self.geometry("400x300")
-        tk.Label(self, text="Menu Principal", font=("Arial", 14)).pack(pady=20)
-        tk.Button(self, text="📦 Editar Estoque", command=self.verificar_senha, width=20).pack(pady=10)
+        tk.Label(self, text="Menu", font=("Arial", 14)).pack(pady=20)
+        tk.Button(self, text="📦 Alterar Estoque", command=self.verificar_senha, width=20).pack(pady=10)
         tk.Button(self, text="📊 Relatórios", command=self.abrir_relatorios, width=20).pack(pady=10)
 
     def verificar_senha(self):
         senha = simpledialog.askstring("Senha", "Digite a senha:", show='*')
-        if senha == Senha":
+        if senha == "13032743":
             self.abrir_edicao()
         else:
             messagebox.showerror("Erro", "Senha incorreta")

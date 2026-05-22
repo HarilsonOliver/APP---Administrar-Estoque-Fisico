@@ -173,6 +173,7 @@ class EdicaoEstoque(tk.Frame):
                 AND F.CODEMITENTE IN (156, 175) 
                 AND F.CAIXA IS NOT NULL
                 AND F.CAIXA <> 0
+                AND F.DTCANCEL IS NULL
                 GROUP BY M.CODPROD
             """)
             
@@ -212,9 +213,11 @@ class EdicaoEstoque(tk.Frame):
                 ''', (cod_int, qtd_float))
                 
                 # 2. Registra o Log com data e hora atual
+                # No arquivo modulo_edicao.py, dentro de adicionar_estoque:
+                # Certifique-se de que a gravação use este formato:
                 cursor.execute('''
                     INSERT INTO historico_alteracoes (codprod, descricao, quantidade, data_hora)
-                    VALUES (?, ?, ?, DATETIME('now', 'localtime'))
+                    VALUES (?, ?, ?, STRFTIME('%Y-%m-%d %H:%M:%S', 'now', 'localtime'))
                 ''', (cod_int, desc_produto, qtd_float))
                 
                 conn.commit()

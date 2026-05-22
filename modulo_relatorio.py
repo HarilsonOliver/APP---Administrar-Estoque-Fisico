@@ -121,8 +121,8 @@ class RelatoriosEstoque(tk.Frame):
 
         # Coluna 6 e 7: Emitente
         tk.Label(frame_filtros, text="Emitente:").grid(row=0, column=6)
-        self.combo_emitente = ttk.Combobox(frame_filtros, values=["156", "175", "128", "126", "127", "129"], width=8)
-        self.combo_emitente.set("156")
+        self.combo_emitente = ttk.Combobox(frame_filtros, values=["156","175","128", "126", "127", "129"], width=8)
+        self.combo_emitente.set("127")
         self.combo_emitente.grid(row=0, column=7, padx=5)
 
         # Botões nas colunas seguintes
@@ -208,17 +208,17 @@ class RelatoriosEstoque(tk.Frame):
         
         
 
-        # Cabeçalho da Tabela de Itens (Fonte 5 para o cabeçalho)
+        # Cabeçalho da Tabela de Itens 
         c.setFont("Helvetica-Bold", 5)
         c.drawString(5*mm, y, "COD")
         c.drawString(15*mm, y, "PRODUTO")
-        c.drawRightString(48*mm, y, "VENDAS")
-        c.drawRightString(62*mm, y, "ESTOQ.")
+        c.drawRightString(55*mm, y, "VENDAS")
+        c.drawRightString(65*mm, y, "ESTOQ.")
         c.drawRightString(75*mm, y, "SALDO")
         y -= 4 * mm
 
-        # Listagem de Itens (Fonte 4 conforme solicitado)
-        c.setFont("Helvetica", 4)
+        # Listagem de Itens 
+        c.setFont("Helvetica", 6)
         for item in dados:
             c.drawString(5*mm, y, str(item[0]))      # CODPROD
             c.drawString(15*mm, y, str(item[1])[:25]) # DESCRIÇÃO
@@ -227,8 +227,8 @@ class RelatoriosEstoque(tk.Frame):
             est_gerencial = f"{float(item[3]):.2f}"
             saldo = f"{float(item[4]):.2f}"
             
-            c.drawRightString(48*mm, y, qtd_vendida) # QTD VENDIDA
-            c.drawRightString(62*mm, y, est_gerencial) # ESTOQUE GERENCIAL
+            c.drawRightString(55*mm, y, qtd_vendida) # QTD VENDIDA
+            c.drawRightString(65*mm, y, est_gerencial) # ESTOQUE GERENCIAL
             c.drawRightString(75*mm, y, saldo) # SALDO (EST - VEND)
             y -= 3 * mm # Espaçamento menor para fonte pequena
 
@@ -268,45 +268,94 @@ class RelatoriosEstoque(tk.Frame):
 
 
     def imprimir_vendas_oracle(self):
-        """Extrai dados da tabela para o PDF térmico com totais e resumo"""
-        itens = []
+        """Relatório com Estoque Inicial (Lançamento) e Abatimento de Vendas Pós-Alteração"""
+        agrupado_operador = {} # {codprod: [desc, qtd_vend_operador_no_periodo]}
         totais_por_cobradora = {}
         valor_total_geral = 0.0
         datas_horas = []
-        nome_operador = "" # Variável para armazenar o nome
+        nome_operador = "" 
+        notas_processadas = set()
 
         filhos = self.tree_vendas.get_children()
         if not filhos:
             messagebox.showwarning("Aviso", "Pesquise as vendas primeiro.")
             return
 
+        # 1. Coleta o que o operador vendeu no período da tela
         for child in filhos:
             v = self.tree_vendas.item(child)["values"]
+            if not nome_operador: nome_operador = v[9]
             
-            if not nome_operador:
-                nome_operador = v[9]
+            num_nota = v[0]
+            if num_nota not in notas_processadas:
+                valor_total_geral += float(v[3])
+                totais_por_cobradora[str(v[2])] = totais_por_cobradora.get(str(v[2]), 0) + float(v[3])
+                notas_processadas.add(num_nota)
             
-            cod_cob = str(v[2])
-            valor_nf = float(v[3])
-            data_sefaz = str(v[4])
+            if v[4]: datas_horas.append(v[4])
             
-            if data_sefaz:
-                datas_horas.append(data_sefaz)
+            cod_prod, desc_prod, qtd_vend = v[5], v[6], float(v[7])
+            
+            if cod_prod in agrupado_operador:
+                agrupado_operador[cod_prod][1] += qtd_vend
+            else:
+                agrupado_operador[cod_prod] = [desc_prod, qtd_vend]
+
+        itens_finais = []
+        try:
+            conn_ora = oracledb.connect(**DB_CONFIG)
+            cursor_ora = conn_ora.cursor()
+            
+            with sqlite3.connect('estoque_gerencial.db') as conn_sql:
+                cursor_sql = conn_sql.cursor()
                 
-            valor_total_geral += valor_nf
-            totais_por_cobradora[cod_cob] = totais_por_cobradora.get(cod_cob, 0) + valor_nf
+                for cod, dados in agrupado_operador.items():
+                    desc, q_vend_pelo_operador = dados
+                    
+                    # 2. Busca a ÚLTIMA alteração manual deste produto
+                    cursor_sql.execute("""
+                        SELECT quantidade, data_hora 
+                        FROM historico_alteracoes 
+                        WHERE codprod = ? 
+                        ORDER BY data_hora DESC LIMIT 1
+                    """, (cod,))
+                    res_hist = cursor_sql.fetchone()
+                    
+                    if res_hist:
+                        estoque_inicial = float(res_hist[0])
+                        data_da_alteracao = res_hist[1]
+                        
+                        # 3. Busca VENDAS GLOBAIS desde a alteração até AGORA
+                        # Isso garante que o saldo considere saídas de outros caixas também
+                        cursor_ora.execute("""
+                            SELECT SUM(M.QT) FROM PCMOV M, PCNFSAID F
+                            WHERE M.NUMTRANSVENDA = F.NUMTRANSVENDA
+                            AND M.CODPROD = :cod AND F.CODFILIAL = 3
+                            AND F.DTCANCEL IS NULL
+                            AND F.DTHORAAUTORIZACAOSEFAZ > TO_DATE(:dt_alt, 'YYYY-MM-DD HH24:MI:SS')
+                        """, {'cod': cod, 'dt_alt': data_da_alteracao})
+                        
+                        vendas_globais_pos_alteracao = cursor_ora.fetchone()[0] or 0
+                        saldo_atual = estoque_inicial - float(vendas_globais_pos_alteracao)
+                    else:
+                        estoque_inicial = 0.0
+                        saldo_atual = 0.0 - q_vend_pelo_operador
+                    
+                    # No PDF: (Cód, Desc, Venda do Operador, Estoque Inicial Lançado, Saldo Calculado)
+                    itens_finais.append((cod, desc, q_vend_pelo_operador, estoque_inicial, saldo_atual))
             
-            # Captura: CodProd(5), Desc(6), QtdVend(7), EstGerencial(10), Saldo(11)
-            itens.append((v[5], v[6], v[7], v[10], v[11]))
+            conn_ora.close()
+        except Exception as e:
+            messagebox.showerror("Erro de Cálculo", f"Erro: {e}")
+            return
 
-        # Determina o período
-        periodo = ""
-        if datas_horas:
-            periodo = f"{datas_horas[0]} até {datas_horas[-1]}"
+        itens_finais.sort(key=lambda x: x[1])
+        periodo = f"{min(datas_horas)} até {max(datas_horas)}" if datas_horas else ""
 
+        # Chama a geração do PDF (ajustada para os novos nomes de colunas)
         self.gerar_pdf_termico_vendas(
             titulo="RESUMO DE VENDAS",
-            dados=itens,
+            dados=itens_finais,
             periodo=periodo,
             total_geral=valor_total_geral,
             resumo_cob=totais_por_cobradora,
@@ -379,7 +428,7 @@ class RelatoriosEstoque(tk.Frame):
             else:
                 filtro_emitente = "AND F.CODEMITENTE IN (156,175,128,126,127,129)"
 
-            # 4. Execução da Query no Oracle
+            # 4. Query no Oracle (Adicionado campo de data/hora bruta para cálculo)
             sql = f"""
             SELECT
                 F.NUMNOTA,
@@ -391,7 +440,8 @@ class RelatoriosEstoque(tk.Frame):
                 P.DESCRICAO,
                 M.QT,
                 (M.PUNIT * M.QT) AS TOTAL_ITEM,
-                E.NOME
+                E.NOME,
+                F.DTHORAAUTORIZACAOSEFAZ -- Campo [10] para lógica de tempo
             FROM
                 PCNFSAID F, PCMOV M, PCPRODUT P, PCEMPR E
             WHERE
@@ -403,32 +453,66 @@ class RelatoriosEstoque(tk.Frame):
                 AND F.CODFILIAL IN (3)
                 AND F.CAIXA IS NOT NULL
                 AND F.CAIXA <> 0
+                AND F.DTCANCEL IS NULL
                 {filtro_emitente}
-            ORDER BY F.NUMNOTA
+            ORDER BY F.DTHORAAUTORIZACAOSEFAZ ASC
             """
             cursor.execute(sql, params)
             vendas = cursor.fetchall()
 
-            # 5. Cruzamento com SQLite (Estoque Gerencial)
+            # 5. Cruzamento com SQLite e Cálculo de Saldo Respeitando Todas as Vendas
             with sqlite3.connect('estoque_gerencial.db') as conn_sql:
                 cursor_sql = conn_sql.cursor()
                 
                 for row in vendas:
-                    codprod = row[5]      # M.CODPROD
-                    qtd_vendida = row[7]  # M.QT
+                    codprod = row[5]
+                    data_venda_atual = row[10] # Objeto datetime do Oracle
                     
-                    # Busca a última alteração registrada para este produto no histórico
-                    cursor_sql.execute(
-                        "SELECT quantidade FROM historico_alteracoes WHERE codprod = ? ORDER BY id DESC LIMIT 1", 
-                        (codprod,)
-                    )
-                    res = cursor_sql.fetchone()
+                    # Busca o último lançamento gerencial feito ANTES ou no momento desta venda
+                    cursor_sql.execute("""
+                        SELECT quantidade, data_hora, descricao 
+                        FROM historico_alteracoes 
+                        WHERE codprod = ? AND data_hora <= ?
+                        ORDER BY data_hora DESC LIMIT 1
+                    """, (codprod, data_venda_atual.strftime("%Y-%m-%d %H:%M:%S")))
                     
-                    qtd_gerencial = float(res[0]) if res else 0.0
-                    subtracao = qtd_gerencial - float(qtd_vendida)
+                    res_hist = cursor_sql.fetchone()
                     
-                    # Adiciona os novos campos ao final da linha original
-                    valores_finais = list(row) + [qtd_gerencial, subtracao]
+                    if res_hist:
+                        # Verifica se o lançamento foi um 'Zerar Gerencial'
+                        # O seu sistema grava "ZERADO: [Nome]" ou "ZERADO: Zeramento Geral"
+                        if "ZERADO:" in str(res_hist[2]):
+                            qtd_inicial_gerencial = 0.0
+                        else:
+                            qtd_inicial_gerencial = float(res_hist[0])
+                            
+                        data_hora_estoque = res_hist[1]
+                        
+                        # O sistema agora vai contar as vendas APENAS a partir deste momento
+                        cursor.execute("""
+                            SELECT SUM(M.QT)
+                            FROM PCMOV M, PCNFSAID F
+                            WHERE M.NUMTRANSVENDA = F.NUMTRANSVENDA
+                            AND M.CODPROD = :cod
+                            AND F.CODFILIAL = 3
+                            AND F.DTCANCEL IS NULL
+                            AND F.DTHORAAUTORIZACAOSEFAZ > TO_DATE(:dt_estoque, 'YYYY-MM-DD HH24:MI:SS')
+                            AND F.DTHORAAUTORIZACAOSEFAZ <= :dt_venda
+                        """, {
+                            'cod': codprod,
+                            'dt_estoque': data_hora_estoque,
+                            'dt_venda': data_venda_atual
+                        })
+                        
+                        vendas_totais_no_periodo = cursor.fetchone()[0] or 0
+                        saldo_calculado = qtd_inicial_gerencial - float(vendas_totais_no_periodo)
+                    else:
+                        # Se não houver histórico de estoque, o saldo é apenas a venda negativa
+                        qtd_inicial_gerencial = 0.0
+                        saldo_calculado = 0.0 - float(row[7])
+                    
+                    # Prepara a linha para o Treeview (mantendo as colunas originais e adicionando os cálculos)
+                    valores_finais = list(row[:10]) + [qtd_inicial_gerencial, saldo_calculado]
                     self.tree_vendas.insert("", tk.END, values=valores_finais)
             
             conn.close()

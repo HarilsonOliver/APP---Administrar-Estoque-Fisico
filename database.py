@@ -1,7 +1,7 @@
 import os
 import oracledb
 
-DB_CONFIG = {"user": "frijel", "password": "senha", "dsn": "IP:PORT/SERVICE"}
+DB_CONFIG = {"user": "frijel", "password": "Afd8505", "dsn": "10.1.1.200:1521/WINT"}
 CLIENT_PATH = r"P:\Oracle_Client\instantclient_23_8"
 
 def init_oracle():
