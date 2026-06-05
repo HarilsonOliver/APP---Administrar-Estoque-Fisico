@@ -9,11 +9,10 @@ class EdicaoEstoque(tk.Frame):
         super().__init__(parent)
         self.controller = controller
         self.dados_completos = []
-        self.filtro_depto = tk.BooleanVar(value=True)
         
         self.init_db_local()
         self.setup_ui()
-        # Opcional: carregar os dados automaticamente ao abrir
+        # Carregar os dados automaticamente ao abrir
         self.atualizar_tabela()
 
     def init_db_local(self):
@@ -26,7 +25,7 @@ class EdicaoEstoque(tk.Frame):
                         qt_separada REAL DEFAULT 0
                     )
                 ''')
-                #TABELA: Historico de Alteração
+                # TABELA: Historico de Alteração
                 conn.execute('''
                         CREATE TABLE IF NOT EXISTS historico_alteracoes (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,17 +60,13 @@ class EdicaoEstoque(tk.Frame):
         tk.Button(frame_topo, text="Salvar Gerencial", bg="#28a745", fg="white", font=('Helvetica', 9, 'bold'),
                 command=self.adicionar_estoque).pack(side=tk.LEFT, padx=10)
         
-        tk.Button(frame_topo, text="Sincronizar Vendas", bg="#007bff", fg="white", font=('Helvetica', 9, 'bold'),
+        tk.Button(frame_topo, text="Atualizar Dados", bg="#007bff", fg="white", font=('Helvetica', 9, 'bold'),
                 command=self.atualizar_tabela).pack(side=tk.LEFT, padx=10)
         
         tk.Button(frame_topo, text="Zerar Gerencial", bg="#dc3545", fg="white", font=('Helvetica', 9, 'bold'),
                 command=self.zerar_estoque_gerencial).pack(side=tk.LEFT, padx=10)
         
-        tk.Label(frame_topo, text=" | Filtro:").pack(side=tk.LEFT, padx=5)
-        tk.Radiobutton(frame_topo, text="Depto 188", variable=self.filtro_depto, 
-                value=True, command=self.atualizar_tabela).pack(side=tk.LEFT)
-        tk.Radiobutton(frame_topo, text="Todos (Filial 3)", variable=self.filtro_depto, 
-                value=False, command=self.atualizar_tabela).pack(side=tk.LEFT)
+        #tk.Label(frame_topo, text=" | Filtro: NÃO INCLUSO DEPTO 188 ", fg="blue", font=('Helvetica', 9, 'bold')).pack(side=tk.LEFT, padx=5)
 
 
         # --- FRAME DE BUSCA ---
@@ -91,35 +86,33 @@ class EdicaoEstoque(tk.Frame):
         scrollbar_v = tk.Scrollbar(container_tabela, orient=tk.VERTICAL)
         scrollbar_v.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # Criar a tabela dentro do container
+        # Criar a tabela dentro do container (Removida a coluna de Vendas)
         self.tree = ttk.Treeview(container_tabela, 
-                                columns=("cod", "desc", "oficial", "gerencial", "vendas"), 
+                                columns=("cod", "desc", "oficial", "gerencial"), 
                                 show='headings',
-                                yscrollcommand=scrollbar_v.set) # Conecta a tabela à scrollbar
+                                yscrollcommand=scrollbar_v.set)
         
         # Configurar a scrollbar para rolar a tabela
         scrollbar_v.config(command=self.tree.yview)
 
-        # Definições das colunas (mesmo código que você já tinha)
+        # Definições das colunas
         self.tree.heading("cod", text="Cód. Prod")
         self.tree.heading("desc", text="Descrição")
         self.tree.heading("oficial", text="Qtd Oficial")
         self.tree.heading("gerencial", text="Qtd Gerencial")
-        self.tree.heading("vendas", text="Vendas Hoje")
         
         self.tree.column("cod", width=80, anchor=tk.CENTER)
         self.tree.column("desc", width=350)
         self.tree.column("oficial", width=100, anchor=tk.CENTER)
         self.tree.column("gerencial", width=100, anchor=tk.CENTER)
-        self.tree.column("vendas", width=80, anchor=tk.CENTER)
         
-        for col in ("cod", "desc", "oficial", "gerencial", "vendas"):
+        for col in ("cod", "desc", "oficial", "gerencial"):
             self.tree.heading(col, command=lambda c=col: self.ordenar_coluna(c, False))
         
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.tree.bind("<ButtonRelease-1>", self.selecionar_item)
 
-    # --- MÉTODOS DE LÓGICA (Permanecem iguais, mas corrigindo referências de conexão) ---
+    # --- MÉTODOS DE LÓGICA ---
 
     def ordenar_coluna(self, col, reverse):
         l = [(self.tree.set(k, col), k) for k in self.tree.get_children('')]
@@ -146,8 +139,7 @@ class EdicaoEstoque(tk.Frame):
             conn = oracledb.connect(**DB_CONFIG)
             cursor = conn.cursor()
             
-            # Base da query para a Filial 3
-            sql_base = """
+            sql_produtos = """
                 SELECT E.CODPROD, P.DESCRICAO, E.QTEST 
                 FROM PCEST E, PCPRODUT P 
                 WHERE E.CODPROD = P.CODPROD 
@@ -155,38 +147,17 @@ class EdicaoEstoque(tk.Frame):
                 AND E.QTEST >= 0
             """
             
-            # Adiciona o filtro de departamento se a variável for True
-            if self.filtro_depto.get():
-                sql_base += " AND P.CODEPTO = 188"
-                
-            cursor.execute(sql_base)
+            cursor.execute(sql_produtos)
             for row in cursor.fetchall():
-                dados_oracle[row[0]] = {'desc': row[1], 'oficial': row[2], 'vendas': 0}
-
-            # Query de vendas (mantendo os filtros de emitentes da Frijel)
-            cursor.execute("""
-                SELECT M.CODPROD, SUM(M.QT) 
-                FROM PCNFSAID F, PCMOV M 
-                WHERE F.NUMTRANSVENDA = M.NUMTRANSVENDA 
-                AND F.DTSAIDA = TRUNC(SYSDATE) 
-                AND F.CODFILIAL = 3 
-                AND F.CODEMITENTE IN (156, 175) 
-                AND F.CAIXA IS NOT NULL
-                AND F.CAIXA <> 0
-                AND F.DTCANCEL IS NULL
-                GROUP BY M.CODPROD
-            """)
-            
-            for row in cursor.fetchall():
-                if row[0] in dados_oracle:
-                    dados_oracle[row[0]]['vendas'] = row[1]
+                # Armazena apenas a descrição e o estoque oficial
+                dados_oracle[row[0]] = {'desc': row[1], 'oficial': row[2]}
                     
             conn.close()
             return dados_oracle
         except Exception as e:
             messagebox.showerror("Erro Oracle", str(e))
             return {}
-
+    
     def adicionar_estoque(self):
         cod = self.ent_cod.get().strip()
         qtd = self.ent_qt.get().strip()
@@ -213,8 +184,6 @@ class EdicaoEstoque(tk.Frame):
                 ''', (cod_int, qtd_float))
                 
                 # 2. Registra o Log com data e hora atual
-                # No arquivo modulo_edicao.py, dentro de adicionar_estoque:
-                # Certifique-se de que a gravação use este formato:
                 cursor.execute('''
                     INSERT INTO historico_alteracoes (codprod, descricao, quantidade, data_hora)
                     VALUES (?, ?, ?, STRFTIME('%Y-%m-%d %H:%M:%S', 'now', 'localtime'))
@@ -224,7 +193,7 @@ class EdicaoEstoque(tk.Frame):
 
             messagebox.showinfo("Sucesso", f"Produto {cod} atualizado com sucesso!")
             self.ent_qt.delete(0, tk.END)
-            self.ent_cod.delete(0, tk.END) # Limpa o código também para evitar erro
+            self.ent_cod.delete(0, tk.END)
             self.atualizar_tabela()
             
         except ValueError:
@@ -281,10 +250,9 @@ class EdicaoEstoque(tk.Frame):
 
         self.dados_completos = []
         for cod, info in dados_ora.items():
+            # Obtém a quantidade gerencial sem abater vendas
             qtd_ger_bruta = dados_loc.get(cod, 0)
-            vendas_hoje = info['vendas']
-            saldo_ger_final = max(0, qtd_ger_bruta - vendas_hoje)
-            self.dados_completos.append((cod, info['desc'], info['oficial'], saldo_ger_final, vendas_hoje))
+            self.dados_completos.append((cod, info['desc'], info['oficial'], qtd_ger_bruta))
         
         self.aplicar_filtro()
 

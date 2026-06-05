@@ -121,8 +121,8 @@ class RelatoriosEstoque(tk.Frame):
 
         # Coluna 6 e 7: Emitente
         tk.Label(frame_filtros, text="Emitente:").grid(row=0, column=6)
-        self.combo_emitente = ttk.Combobox(frame_filtros, values=["156","175","128", "126", "127", "129"], width=8)
-        self.combo_emitente.set("127")
+        self.combo_emitente = ttk.Combobox(frame_filtros, values=["156", "175"], width=8)
+        self.combo_emitente.set("156")
         self.combo_emitente.grid(row=0, column=7, padx=5)
 
         # Botões nas colunas seguintes
@@ -187,7 +187,7 @@ class RelatoriosEstoque(tk.Frame):
 
         # Cabeçalho
         c.setFont("Helvetica-Bold", 12)
-        c.drawCentredString(largura_fita/2, y, "FRIJEL - 24HRS")
+        c.drawCentredString(largura_fita/2, y, "FRIJEL - LOJA")
         y -= 5 * mm
         
         
@@ -330,7 +330,9 @@ class RelatoriosEstoque(tk.Frame):
                         cursor_ora.execute("""
                             SELECT SUM(M.QT) FROM PCMOV M, PCNFSAID F
                             WHERE M.NUMTRANSVENDA = F.NUMTRANSVENDA
-                            AND M.CODPROD = :cod AND F.CODFILIAL = 3
+                            AND M.CODPROD = :cod 
+                            AND F.CODFILIAL = 3
+                            AND F.CODEMITENTE IN (156, 175)
                             AND F.DTCANCEL IS NULL
                             AND F.DTHORAAUTORIZACAOSEFAZ > TO_DATE(:dt_alt, 'YYYY-MM-DD HH24:MI:SS')
                         """, {'cod': cod, 'dt_alt': data_da_alteracao})
@@ -426,7 +428,7 @@ class RelatoriosEstoque(tk.Frame):
                 filtro_emitente = "AND F.CODEMITENTE = :EMIT"
                 params['EMIT'] = emitente_sel
             else:
-                filtro_emitente = "AND F.CODEMITENTE IN (156,175,128,126,127,129)"
+                filtro_emitente = "AND F.CODEMITENTE IN (156, 175)"
 
             # 4. Query no Oracle (Adicionado campo de data/hora bruta para cálculo)
             sql = f"""
@@ -491,10 +493,13 @@ class RelatoriosEstoque(tk.Frame):
                         # O sistema agora vai contar as vendas APENAS a partir deste momento
                         cursor.execute("""
                             SELECT SUM(M.QT)
-                            FROM PCMOV M, PCNFSAID F
+                            FROM PCMOV M, PCNFSAID F, PCPRODUT P
                             WHERE M.NUMTRANSVENDA = F.NUMTRANSVENDA
+                            AND M.CODPROD = P.CODPROD
                             AND M.CODPROD = :cod
                             AND F.CODFILIAL = 3
+                            AND P.CODEPTO NOT IN (188)
+                            AND F.CODEMITENTE IN (156, 175)
                             AND F.DTCANCEL IS NULL
                             AND F.DTHORAAUTORIZACAOSEFAZ > TO_DATE(:dt_estoque, 'YYYY-MM-DD HH24:MI:SS')
                             AND F.DTHORAAUTORIZACAOSEFAZ <= :dt_venda

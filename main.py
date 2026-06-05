@@ -7,7 +7,7 @@ from modulo_relatorio import RelatoriosEstoque
 class JanelaPrincipal(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Controle de Estoque 24HRS")
+        self.title("Gestão de Estoque LOJA")
         self.geometry("400x300")
         init_oracle()
         self.show_menu()
